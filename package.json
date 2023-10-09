@@ -44,6 +44,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
-    "address": "^2.0.1"
+    "address": "^2.0.1",
+    "axios": "^1.5.1"
   }
 }
