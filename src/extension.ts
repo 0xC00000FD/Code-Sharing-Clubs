@@ -54,6 +54,8 @@ export function activate(context: vscode.ExtensionContext) {
 					const workSpacePath = vscode.workspace.workspaceFolders === undefined ? undefined : vscode.workspace.workspaceFolders[0].uri.fsPath;
 					const filePath = workSpacePath + sessionID + "/" + fileName;
 
+					console.log(sessionID, fileName);
+
 					fs.mkdir(workSpacePath + sessionID, (err) => console.log(err));
 					fs.writeFile(filePath, file, (err) => {
 						console.log(err);
@@ -115,8 +117,14 @@ export function activate(context: vscode.ExtensionContext) {
 		setInterval( async () => {
 			const file = vscode.window.activeTextEditor?.document;
 
-			const fileURI : string[] | undefined = file?.fileName.split('/');
-			const fileName : string | undefined = fileURI === undefined ? '' : fileURI[fileURI.length - 1];
+			let fileURI : string[] | undefined = file?.fileName.split('/');
+			let fileName : string | undefined = fileURI === undefined ? '' : fileURI[fileURI.length - 1];
+
+			if(fileName === file?.fileName) {
+				let fileURI : string[] | undefined = file?.fileName.split('\\');
+				let fileName : string | undefined = fileURI === undefined ? '' : fileURI[fileURI.length - 1];
+			}
+			
 			const data = file?.getText();
 
 			const postPath : string = "http://" + ip + ':' + port + '/sessionID/' + fileName;
