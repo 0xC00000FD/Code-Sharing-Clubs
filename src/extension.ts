@@ -156,14 +156,14 @@ export function activate(context: vscode.ExtensionContext) {
 			sessionName : string
 		}
 
-		let ip: Session[] = [];
+		let sessions: Session[] = [];
 		let startTime = new Date().getTime();
 		sock.on('message', (msg) => {
 			let ipString = msg.toString().split(" ")[3];
 			let sessionName = msg.toString().split(" ")[4];
 
-			if (!ip.includes({ipString, sessionName})) {
-				ip.push({ipString, sessionName});
+			if (sessions.find(session => session.ipString === ipString) === undefined) {
+				sessions.push({ipString, sessionName});
 
 				startTime = new Date().getTime();
 			}
@@ -171,22 +171,25 @@ export function activate(context: vscode.ExtensionContext) {
 
 		let serverCheckInterval = setInterval(() => {
 			console.log(startTime);
-			console.log(ip);
+			console.log(sessions);
 
 			if (new Date().getTime() - startTime >= 5000) {
 				sock.close();
 			}
 		}, 500);
 
+		let chosenIP: string | undefined = '';
 		sock.on('close', async () => {
 			clearInterval(serverCheckInterval);
 
-			let chosenIP: string | undefined = await vscode.window.showQuickPick(
-				ip.length === 0 ? ["No servers found on local network (Press ESC/Enter to type the server IP)"] : ip.map(e => e.ipString + " (" + e.sessionName + ")"),
+			chosenIP = await vscode.window.showQuickPick(
+				sessions.length === 0 ? ["No servers found on local network (Press ESC/Enter to type the server IP)"] : sessions.map(e => e.ipString + " (" + e.sessionName + ")"),
 				{
 					"title": "Select a code sharing server: ",
 				}
 			);
+
+			chosenIP = chosenIP?.split(" ")[0];
 
 			if (chosenIP === undefined || chosenIP === "No servers found on local network (Press ESC/Enter to type the server IP)") {
 				chosenIP = await vscode.window.showInputBox(
@@ -210,7 +213,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 			const data = file?.getText();
 
-			const postPath: string = "http://" + ip + ':' + port + '/sessionID/' + fileName;
+			const postPath: string = "http://" + chosenIP + ':' + port + '/sessionID/' + fileName;
 
 			let config: AxiosRequestConfig = {
 				"headers": {
