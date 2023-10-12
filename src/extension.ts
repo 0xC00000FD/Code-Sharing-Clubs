@@ -7,7 +7,7 @@ import * as os from 'os';
 import * as ip from 'ip';
 import axios, { AxiosRequestConfig } from 'axios';
 
-
+//TODO: Add HTTPS support
 export function activate(context: vscode.ExtensionContext) {
 
 	/* Start a session as the server of the session
@@ -50,8 +50,21 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			);
 
-			if(sessionID === undefined || sessionID === '') {
-				vscode.window.showErrorMessage("CSC: Please enter a valid name for the session. (non-empty alphanumerical string)");
+			const specialChars = /[`!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~]/;
+			if(sessionID === undefined || sessionID === '' || specialChars.test(sessionID) === true) {
+				vscode.window.showErrorMessage("CSC: Please enter a valid name for the session. (non-empty, no special characters)");
+				return;
+			}
+
+			let sessionPassword = await vscode.window.showInputBox(
+				{
+					"prompt": "Choose a session password",
+					"password": true
+				}
+			);
+
+			if(sessionPassword === undefined || sessionPassword === '') {
+				vscode.window.showErrorMessage("CSC: No session password entered");
 				return;
 			}
 
@@ -83,7 +96,6 @@ export function activate(context: vscode.ExtensionContext) {
 			let requestListener = (req: any, res: any): void => {
 				if (req.method === "POST") {
 					let file: string = '';
-					let sessionID: string = path.dirname(req.url);
 					let fileName: string = path.basename(req.url);
 
 					req.on('data', (data: string) => {
@@ -117,6 +129,14 @@ export function activate(context: vscode.ExtensionContext) {
 				console.log("Server Deschis");
 			});
 
+			let decorationType : vscode.TextEditorDecorationType;
+			
+			const color = new vscode.ThemeColor('selection.background');
+			decorationType = vscode.window.createTextEditorDecorationType({
+				fontStyle: "italic",
+				fontWeight: "700",
+				backgroundColor: color,
+			});
 
 			let interval = setInterval(() => {
 				const file = vscode.window.activeTextEditor?.document;
@@ -134,7 +154,7 @@ export function activate(context: vscode.ExtensionContext) {
 					const cursorPositionStart = new vscode.Position(parseInt(cursor['cursorselectionstartline']), parseInt(cursor['cursorselectionstartchar']));
 					const cursorPositionEnd = new vscode.Position(parseInt(cursor['cursorselectionendline']), parseInt(cursor['cursorselectionendchar']));
 					const cursorRange = new vscode.Range(cursorPositionStart, cursorPositionEnd);
-					const decorationType = vscode.window.createTextEditorDecorationType({});
+					
 
 					vscode.window.activeTextEditor?.setDecorations(decorationType, [cursorRange]);
 				}
@@ -147,14 +167,14 @@ export function activate(context: vscode.ExtensionContext) {
 	The client will send data to the session server about the file they are editing
 	as well as receive data from the server in case of changes to the code from the server */
 	let startSessionAsClientCommand = vscode.commands.registerCommand('csc.startCodeSharingClient', () => {
-		const port: number = 9898;
-		const sock: dgram.Socket = dgram.createSocket('udp4');
-		sock.bind(port);
-
 		interface Session {
 			ipString : string, 
 			sessionName : string
 		}
+
+		const port: number = 9898;
+		const sock: dgram.Socket = dgram.createSocket('udp4');
+		sock.bind(port);
 
 		let sessions: Session[] = [];
 		let startTime = new Date().getTime();
@@ -169,6 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		});
 
+		let intervalFinished = false;
 		let serverCheckInterval = setInterval(() => {
 			console.log(startTime);
 			console.log(sessions);
@@ -178,9 +199,30 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 		}, 500);
 
+		vscode.window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			cancellable: false,
+			title: 'CSC: Locating code sharing servers.'
+		}, async (progress) => {
+			progress.report({increment: 0});
+
+			await new Promise(resolve => setInterval(() => {
+				if(intervalFinished === true) {
+					resolve(true);
+				}
+			}, 2750));
+
+			progress.report({increment: 100});
+		});
+
 		let chosenIP: string | undefined = '';
+		let chosenName: string | undefined = '';
+		let sessionID: string | undefined = '';
+		let sessionPassword: string | undefined = '';
+
 		sock.on('close', async () => {
 			clearInterval(serverCheckInterval);
+			intervalFinished = true;
 
 			chosenIP = await vscode.window.showQuickPick(
 				sessions.length === 0 ? ["No servers found on local network (Press ESC/Enter to type the server IP)"] : sessions.map(e => e.ipString + " (" + e.sessionName + ")"),
@@ -189,6 +231,7 @@ export function activate(context: vscode.ExtensionContext) {
 				}
 			);
 
+			sessionID = chosenIP?.split(" ")[1];
 			chosenIP = chosenIP?.split(" ")[0];
 
 			if (chosenIP === undefined || chosenIP === "No servers found on local network (Press ESC/Enter to type the server IP)") {
@@ -198,9 +241,35 @@ export function activate(context: vscode.ExtensionContext) {
 					}
 				);
 			}
+
+			chosenName = await vscode.window.showInputBox(
+				{
+					"prompt": "Enter your username for the session"
+				}
+			);
+
+			if(chosenName === undefined || chosenName === '') {
+				vscode.window.showErrorMessage("CSC: No username entered");
+				deactivate();
+				return;
+			}
+
+			sessionPassword = await vscode.window.showInputBox(
+				{
+					"prompt": "Enter the session password",
+					"password": true
+				}
+			);
+
+			if(sessionPassword === undefined || sessionPassword === '') {
+				vscode.window.showErrorMessage("CSC: No session password entered");
+				deactivate();
+				return;
+			}
 		});
 
-		setInterval(async () => {
+		
+		setInterval( async () => {
 			const file = vscode.window.activeTextEditor?.document;
 
 			let fileURI: string[] | undefined = file?.fileName.split('/');
@@ -213,7 +282,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 			const data = file?.getText();
 
-			const postPath: string = "http://" + chosenIP + ':' + port + '/sessionID/' + fileName;
+			const postPath: string = "http://" + chosenIP + ':' + port + "/" + sessionID + "/" + chosenName + fileName;
 
 			let config: AxiosRequestConfig = {
 				"headers": {
@@ -221,12 +290,13 @@ export function activate(context: vscode.ExtensionContext) {
 					"cursorselectionstartline": vscode.window.activeTextEditor?.selection.start.line.toString() ?? "",
 					"cursorselectionendchar": vscode.window.activeTextEditor?.selection.end.character.toString() ?? "",
 					"cursorselectionendline": vscode.window.activeTextEditor?.selection.end.line.toString() ?? "",
+					"password": sessionPassword,
 				}
 			};
-
+			
 			console.log(postPath);
 			await axios.post(postPath, data, config);
-		}, 100);
+		}, 500);
 	});
 
 	context.subscriptions.push(startServerCommand, startSessionAsClientCommand);
